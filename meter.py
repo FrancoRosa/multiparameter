@@ -16,10 +16,14 @@ power_meter.serial.timeout = 1
 power_meter.mode = minimalmodbus.MODE_RTU
 power_meter.debug = modbus_debug
 
-frequency = 0
+
+def save_record(file, line):
+    f = open(file, "a")
+    f.write(line)
+    f.close()
 
 
-def readreg(reg, dec):
+def read_register(reg, dec):
     for i in range(2):
         sleep(0.1)
         try:
@@ -35,33 +39,41 @@ def is_verified(frequency):
     return False
 
 
-def readdata(filedata):
-    global frequency
-
-    date_time = strftime('%Y-%m-%d %H:%M:%S', localtime())
-
+def read_data():
+    frequency = None
     for i in range(2):
-        apparent_power = readreg(rS_T,  0)
-        test_frequency = readreg(rFrec, 2)
+        apparent_power = read_register(rS_T,  0)
+        test_frequency = read_register(rFrec, 2)
         if is_verified(test_frequency):
             frequency = test_frequency
             break
-
-    human_message = "%s: %dW, %.1fHz" % (date_time, apparent_power, frequency)
-    rf_message = "%.0f,%.1f" % (apparent_power, frequency)
-    csv_record = "%s,%.0f,%.1f\n" % (date_time, apparent_power, frequency)
-    print(human_message)
-    ser.write(rf_message.encode())
-    filedata.write(csv_record)
+    return {"frequency": frequency, "power": apparent_power}
 
 
 def checktime(sec):
-    while True:
-        res = round(time() % sec)
-        if res == 0.0:
-            readdata(filedata)
-        sleep(0.5)
+    return round(time() % sec) == 0
 
 
 while True:
-    checktime(1)
+    if (checktime(1)):
+        data = read_data()
+        date_time = strftime('%Y-%m-%d %H:%M:%S', localtime())
+        if data["frequency"]:
+            human_message = "%s: %dW, %.1fHz" % (
+                date_time, data["power"], data["frequency"])
+            print(human_message)
+        else:
+            print("... modbus error")
+
+    if checktime(5) and data["frequency"]:
+        rf_message = "%.0f,%.1f" % (data["power"], data["frequency"])
+        ser.write(rf_message.encode())
+        print("... rf")
+
+    if checktime(5) and data["frequency"]:
+        csv_record = "%s,%.0f,%.1f\n" % (
+            date_time, data["power"], data["frequency"])
+        save_record(filedir, csv_record)
+        print("... csv")
+
+    sleep(0.5)
